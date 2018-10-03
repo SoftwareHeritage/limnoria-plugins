@@ -32,14 +32,6 @@ import supybot.conf as conf
 from supybot.test import *
 
 ENTRY1 = {
-		'authorPHID': 'PHID-USER-fozivtfr457sc7smrhtv',
-		'chronologicalKey': '6607424649221995233',
-		'class': 'PhabricatorApplicationTransactionFeedStory',
-		'data': {'objectPHID': 'PHID-TASK-lwuvnwjjnenqsyan73om',
-				 'transactionPHIDs': {'PHID-XACT-TASK-cgdt45mjjymbxpk': 'PHID-XACT-TASK-cgdt45mjjymbxpk'}},
-		'epoch': 1538410933}
-
-ENTRY2 = {
 		'authorPHID': 'PHID-USER-jyszzzys2aaakr2q2ijx',
 		'chronologicalKey': '6607410428317095759',
 		'class': 'PhabricatorApplicationTransactionFeedStory',
@@ -47,6 +39,14 @@ ENTRY2 = {
 				 'transactionPHIDs': {'PHID-XACT-DREV-lo5bwt2qii6dbud': 'PHID-XACT-DREV-lo5bwt2qii6dbud',
 									  'PHID-XACT-DREV-q4kayyycsd4izyj': 'PHID-XACT-DREV-q4kayyycsd4izyj'}},
 		'epoch': 1538407622}
+
+ENTRY2 = {
+		'authorPHID': 'PHID-USER-fozivtfr457sc7smrhtv',
+		'chronologicalKey': '6607424649221995233',
+		'class': 'PhabricatorApplicationTransactionFeedStory',
+		'data': {'objectPHID': 'PHID-TASK-lwuvnwjjnenqsyan73om',
+				 'transactionPHIDs': {'PHID-XACT-TASK-cgdt45mjjymbxpk': 'PHID-XACT-TASK-cgdt45mjjymbxpk'}},
+		'epoch': 1538410933}
 
 ENTRY3 = {
         'authorPHID': 'PHID-USER-jyszzzys2aaakr2q2ijx',
@@ -58,7 +58,7 @@ ENTRY3 = {
         'epoch': 1538483857}
 
 FEED1 = {
- 'phid-stry-zuicf6fhi4esag22cmw2': ENTRY2,
+ 'phid-stry-zuicf6fhi4esag22cmw2': ENTRY1,
  }
 
 FEED2 = {
