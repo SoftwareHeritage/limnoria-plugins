@@ -28,15 +28,19 @@
 
 ###
 
-from collections import defaultdict
 import re
 import time
+import operator
+import threading
+from collections import defaultdict, namedtuple
 
 import phabricator
 
 import supybot.utils as utils
 from supybot.commands import *
+import supybot.world as world
 import supybot.plugins as plugins
+import supybot.ircmsgs as ircmsgs
 import supybot.ircutils as ircutils
 import supybot.callbacks as callbacks
 try:
@@ -47,6 +51,8 @@ except ImportError:
     # without the i18n module
     _ = lambda x: x
 
+feed_announce = namedtuple('feed_announce', 'fetch_time max_epoch')
+cache_entry = namedtuple('phid_cache_entry', 'data expiry')
 
 class Phabricator(callbacks.PluginRegexp):
     """Integration with the Phabricator development collaboration tools"""
@@ -63,7 +69,12 @@ class Phabricator(callbacks.PluginRegexp):
 
         self.default_conduit = None
         self._conduits = {}
-        self._phid_cache = defaultdict(lambda: (None, 0))
+        self._last_feed_announces = defaultdict(
+                lambda: feed_announce(0, None))
+        self._phid_object_cache = defaultdict(
+                lambda: cache_entry(None, 0))
+        self._phid_transaction_cache = defaultdict(
+                lambda: cache_entry(None, 0))
         host = self.registryValue('phabricatorURI')
         token = self.registryValue('phabricatorConduitToken')
         if host and token:
@@ -97,18 +108,57 @@ class Phabricator(callbacks.PluginRegexp):
         return self.conduit_for_host_token(host, token)
 
     def get_object_by_phid(self, recipient, phid, skip_cache=False):
-        if not skip_cache:
-            object, timeout = self._phid_cache[recipient, phid]
-            if timeout > time.time():
-                return object
+        objs = self.get_objects_by_phid(recipient, [phid], skip_cache)
+        return objs.get(phid)
 
-        r = self.conduit(recipient).phid.query(phids=[phid])
-        object = r.response.get(phid)
-        self._phid_cache[recipient, phid] = (
-            object,
-            time.time() + self.phid_cache_expiry
-        )
-        return object
+    def get_objects_by_phid(self, recipient, phids, skip_cache=False):
+        objects = {}
+        if not skip_cache:
+            for phid in phids:
+                obj, timeout = self._phid_object_cache[recipient, phid]
+                if timeout > time.time():
+                    objects[phid] = obj
+        if set(objects) == set(phids):
+            # If we already got all the phids we need in the cache,
+            # no need to make a query
+            return objects
+
+        # Else, make a single request for all the objects
+        # (even those in the cache; there's no harm in refreshing them)
+        r = self.conduit(recipient).phid.query(phids=phids)
+        for (phid, obj) in r.items():
+            self._phid_object_cache[recipient, phid] = cache_entry(
+                obj,
+                time.time() + self.phid_cache_expiry
+            )
+        return dict(r)
+
+    def get_transactions_by_phid(self, recipient, transactions_phids,
+            object_phid, skip_cache=False):
+        transactions = {}
+        if not skip_cache:
+            for phid in transactions_phids:
+                trans, timeout = self._phid_transaction_cache[recipient,
+                        object_phid, phid]
+                if timeout > time.time():
+                    transactions[phid] = trans
+        if set(transactions) == set(transactions_phids):
+            # If we already got all the phids we need in the cache,
+            # no need to make a query
+            return transactions
+
+        # Else, make a single request for all the transactions
+        # (even those in the cache; there's no harm in refreshing them)
+        r = self.conduit(recipient).transaction.search(
+                objectIdentifier=object_phid,
+                constraints={'phids': transactions_phids})
+        for trans in r['data']:
+            self._phid_transaction_cache[recipient, object_phid, trans['phid']] = cache_entry(
+                trans,
+                time.time() + self.phid_cache_expiry
+            )
+            transactions[trans['phid']] = trans
+        return dict(r)
 
     def get_commit_author_info(self, recipient, commit, type='author'):
         if not commit['%sPHID' % type]:
@@ -369,6 +419,76 @@ class Phabricator(callbacks.PluginRegexp):
                 prefixNick=False,
                 to=recipient,
             )
+
+    def __call__(self, irc, msg):
+        super().__call__(irc, msg)
+        threading.Thread(target=self._update_feeds).start()
+
+    def _update_feeds(self):
+        """Goes through all channels, and trigger an update on the ones
+        which have an associated feed."""
+        for irc in world.ircs:
+            for channel in irc.state.channels:
+                if self.registryValue('announce', channel):
+                    self._update_feed_if_needed(irc, channel)
+
+    def _update_feed_if_needed(self, irc, channel):
+        """Triggers an update if the channel's feed should be updated."""
+        recipient_key = (irc.network, channel)
+        previous_announce = self._last_feed_announces[recipient_key]
+        current_time = time.time()
+        interval = self.registryValue('announce.interval', channel)
+        if previous_announce.fetch_time + interval < current_time:
+            max_epoch = self._update_feed(irc, channel,
+                    previous_announce.max_epoch)
+            self._last_feed_announces[recipient_key] = feed_announce(
+                    fetch_time=current_time,
+                    max_epoch=max_epoch)
+
+    def _update_feed(self, irc, channel, after_epoch):
+        """Send updates of a feed to a channel, and returns its max epoch."""
+        conduit = self.conduit(channel)
+        stories = conduit.feed.query(view='data')
+
+        stories = sorted(stories.values(),
+                key=operator.itemgetter('epoch'))
+
+        objects = self.get_objects_by_phid(channel,
+                [story['data']['objectPHID'] for story in stories])
+
+        after_epoch = after_epoch or 0
+        for story in stories:
+            if (after_epoch > 0 and # Don't announce on the first run
+                    story['epoch'] > after_epoch):
+                self._announce_story(irc, channel, story,
+                        objects[story['data']['objectPHID']])
+        max_epoch = max(story['epoch'] for story in stories)
+        return max(after_epoch, max_epoch)
+
+    def _announce_story(self, irc, channel, story, obj):
+        """Send a story to a channel."""
+        username_blacklist = self.registryValue('announce.usernameBlacklist',
+                    channel)
+        transactions = self.get_transactions_by_phid(channel,
+                list(story['data']['transactionPHIDs']), obj['phid'])
+        actions = defaultdict(lambda: [])
+        for trans in transactions['data']:
+            actions[self.get_user_by_phid(channel, trans['authorPHID'])] \
+                    .append(trans['type'])
+
+        parts = []
+        for (author, author_actions) in actions.items():
+            if author in username_blacklist:
+                continue
+            parts.append('{} from {}'.format('+'.join(author_actions), author))
+        msg = format('%s; on %s %u',
+                ', '.join(parts),
+                obj['fullName'],
+                obj['uri'],
+            )
+        if parts:
+            irc.queueMsg(ircmsgs.privmsg(channel, msg))
+
 
 
 Class = Phabricator

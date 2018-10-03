@@ -70,6 +70,28 @@ conf.registerChannelValue(
     ))
 )
 
+conf.registerChannelValue(
+    Phabricator, 'announce',
+    registry.Boolean(False, _(
+        """Determines whether Phabricator's feed will be announced
+        on the channel."""
+    ))
+)
+
+conf.registerChannelValue(
+    Phabricator.announce, 'interval',
+    registry.PositiveInteger(60, _(
+        """The interval between two queries to Phabricator's feed API."""
+    ))
+)
+
+
+conf.registerChannelValue(
+    Phabricator.announce, 'usernameBlacklist',
+    registry.SpaceSeparatedSetOfStrings({"Harbormaster", "Herald"}, _(
+        """The interval between two queries to Phabricator's feed API."""
+    ))
+)
 
 
 # vim:set shiftwidth=4 tabstop=4 expandtab textwidth=79:
