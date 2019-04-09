@@ -221,6 +221,7 @@ class Phabricator(callbacks.PluginRegexp):
          |(?<![:])\b # word boundary, not preceded by ":"
         )
         [A-Z]\d+
+        (#\d+[-A-Za-z0-9]*)*      # optional comment
         (?:
           $         # end of line
          |\b        # word boundary
@@ -228,8 +229,11 @@ class Phabricator(callbacks.PluginRegexp):
         """
         for recipient in msg.args[0].split(','):
             object_tag = match.group(0)
-            object_type = object_tag[0]
-            object_id = int(object_tag[1:])
+            object_type, object_id = object_tag[0], object_tag[1:]
+            if '#' in object_id:  # object id can contain a fragment now
+                object_id, _ = object_id.split('#')
+            object_id = int(object_id)
+            object_fragment = match.group(1)
             lookup = {
                 'B': self.conduit(recipient).harbormaster.build.search,
                 'D': self.conduit(recipient).differential.revision.search,
@@ -261,13 +265,13 @@ class Phabricator(callbacks.PluginRegexp):
 
             self.wrapped_message(
                 irc.reply,
-                formatter[object_type](recipient, object),
+                formatter[object_type](recipient, object, object_fragment),
                 notice=True,
                 prefixNick=False,
                 to=recipient,
             )
 
-    def build_formatter(self, recipient, build):
+    def build_formatter(self, recipient, build, object_fragment=None):
         full_build = self.get_object_by_phid(recipient, build['phid'], True)
         buildable = self.get_buildable(recipient,
                                        build['fields']['buildablePHID'])
@@ -283,7 +287,7 @@ class Phabricator(callbacks.PluginRegexp):
             url=full_build['uri'],
         )
 
-    def diff_formatter(self, recipient, diff):
+    def diff_formatter(self, recipient, diff, object_fragment=None):
         full_diff = self.get_object_by_phid(recipient, diff['phid'], True)
         repo = self.get_repo(recipient, diff['fields']['repositoryPHID'])
         details = []
@@ -295,15 +299,19 @@ class Phabricator(callbacks.PluginRegexp):
         status = diff['fields']['status']['name']
         details.append(self.diff_status_theme(status))
 
+        url = full_diff['uri']
+        if object_fragment is not None:
+            url = '%s%s' % (url, object_fragment)
+
         return "{id} ({details}) on {repo}: {title} <{url}>".format(
             id=ircutils.bold('D%s' % diff['id']),
             repo=ircutils.bold(self.get_repo_name(repo)),
             title=diff['fields']['title'],
             details=', '.join(details),
-            url=full_diff['uri'],
+            url=url,
         )
 
-    def paste_formatter(self, recipient, paste):
+    def paste_formatter(self, recipient, paste, object_fragment=None):
         full_paste = self.get_object_by_phid(recipient, paste['phid'], True)
         details = []
         details.append(
@@ -311,14 +319,18 @@ class Phabricator(callbacks.PluginRegexp):
                 recipient, paste['fields']['authorPHID']
             )
         )
+        url = full_paste['uri']
+        if object_fragment is not None:
+            url = '%s%s' % (url, object_fragment)
+
         return "{id} ({details}): {title} <{url}>".format(
             id=ircutils.bold('P%s' % paste['id']),
             title=paste['fields']['title'],
             details=', '.join(details),
-            url=full_paste['uri'],
+            url=url,
         )
 
-    def task_formatter(self, recipient, task):
+    def task_formatter(self, recipient, task, object_fragment=None):
         full_task = self.get_object_by_phid(recipient, task['phid'], True)
         details = []
         details.append(
@@ -338,11 +350,15 @@ class Phabricator(callbacks.PluginRegexp):
         status = task['fields']['status']['name']
         details.append('status: %s' % self.task_status_theme(status))
 
+        url = full_task['uri']
+        if object_fragment is not None:
+            url = '%s%s' % (url, object_fragment)
+
         return "{id} ({details}): {title} <{url}>".format(
             id=ircutils.bold('T%s' % task['id']),
             title=task['fields']['name'],
             details=', '.join(details),
-            url=full_task['uri'],
+            url=url,
         )
 
     def commit_formatter(self, recipient, commit, skip_details=None):
