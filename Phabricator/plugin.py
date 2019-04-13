@@ -220,7 +220,9 @@ class Phabricator(callbacks.PluginRegexp):
           ^         # start of line
          |(?<![:])\b # word boundary, not preceded by ":"
         )
-        ([A-Z])(\d+)(#\d+[-A-Za-z0-9]*)*      # optional comment
+        ([A-Z])               # object type
+        (\d+)                 # object id
+        (#\d+[-A-Za-z0-9]*)*  # optional comment link (as fragment)
         (?:
           $         # end of line
          |\b        # word boundary
