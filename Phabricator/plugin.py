@@ -220,16 +220,14 @@ class Phabricator(callbacks.PluginRegexp):
           ^         # start of line
          |(?<![:])\b # word boundary, not preceded by ":"
         )
-        [A-Z]\d+
-        (#\d+[-A-Za-z0-9]*)*      # optional comment
+        ([A-Z])(\d+)(#\d+[-A-Za-z0-9]*)*      # optional comment
         (?:
           $         # end of line
          |\b        # word boundary
         )
         """
         for recipient in msg.args[0].split(','):
-            object_tag = match.group(0)
-            object_type, object_id = object_tag[0], object_tag[1:]
+            object_type = match.group(1)
             lookup = {
                 'B': self.conduit(recipient).harbormaster.build.search,
                 'D': self.conduit(recipient).differential.revision.search,
@@ -239,10 +237,8 @@ class Phabricator(callbacks.PluginRegexp):
             if object_type not in lookup:
                 return
 
-            if '#' in object_id:  # object id can contain a fragment now
-                object_id, _ = object_id.split('#')
-            object_id = int(object_id)
-            object_fragment = match.group(1)
+            object_id = int(match.group(2))
+            object_fragment = match.group(3)  # Or None as this is optional
 
             lookup_args = {
                 'constraints': {
