@@ -222,7 +222,7 @@ class Phabricator(callbacks.PluginRegexp):
         )
         ([a-zA-Z])            # object type
         (\d+)                 # object id
-        (#\d+[-A-Za-z0-9]*)*  # optional comment link (as fragment)
+        (#\d+[-A-Za-z0-9]*)?  # optional comment link (as fragment)
         (?:
           $         # end of line
          |\b        # word boundary
