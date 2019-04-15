@@ -107,9 +107,14 @@ class Phabricator(callbacks.PluginRegexp):
         )
         return self.conduit_for_host_token(host, token)
 
-    def get_object_by_phid(self, recipient, phid, skip_cache=False):
+    def get_object_by_phid(self, recipient, phid,
+                           skip_cache=False, object_fragment=None):
         objs = self.get_objects_by_phid(recipient, [phid], skip_cache)
-        return objs.get(phid)
+        obj = objs.get(phid)
+        if obj and object_fragment is not None:
+            url = obj['uri']
+            obj['uri'] = '%s%s' % (url, object_fragment)
+        return obj
 
     def get_objects_by_phid(self, recipient, phids, skip_cache=False):
         objects = {}
@@ -287,7 +292,8 @@ class Phabricator(callbacks.PluginRegexp):
         )
 
     def diff_formatter(self, recipient, diff, object_fragment=None):
-        full_diff = self.get_object_by_phid(recipient, diff['phid'], True)
+        full_diff = self.get_object_by_phid(recipient, diff['phid'], True,
+                                            object_fragment=object_fragment)
         repo = self.get_repo(recipient, diff['fields']['repositoryPHID'])
         details = []
         details.append(
@@ -298,39 +304,34 @@ class Phabricator(callbacks.PluginRegexp):
         status = diff['fields']['status']['name']
         details.append(self.diff_status_theme(status))
 
-        url = full_diff['uri']
-        if object_fragment is not None:
-            url = '%s%s' % (url, object_fragment)
-
         return "{id} ({details}) on {repo}: {title} <{url}>".format(
             id=ircutils.bold('D%s' % diff['id']),
             repo=ircutils.bold(self.get_repo_name(repo)),
             title=diff['fields']['title'],
             details=', '.join(details),
-            url=url,
+            url=full_diff['uri'],
         )
 
     def paste_formatter(self, recipient, paste, object_fragment=None):
-        full_paste = self.get_object_by_phid(recipient, paste['phid'], True)
+        full_paste = self.get_object_by_phid(recipient, paste['phid'], True,
+                                             object_fragment=object_fragment)
         details = []
         details.append(
             'author: %s' % self.get_user_by_phid(
                 recipient, paste['fields']['authorPHID']
             )
         )
-        url = full_paste['uri']
-        if object_fragment is not None:
-            url = '%s%s' % (url, object_fragment)
 
         return "{id} ({details}): {title} <{url}>".format(
             id=ircutils.bold('P%s' % paste['id']),
             title=paste['fields']['title'],
             details=', '.join(details),
-            url=url,
+            url=full_paste['uri'],
         )
 
     def task_formatter(self, recipient, task, object_fragment=None):
-        full_task = self.get_object_by_phid(recipient, task['phid'], True)
+        full_task = self.get_object_by_phid(recipient, task['phid'], True,
+                                            object_fragment=object_fragment)
         details = []
         details.append(
             'submitter: %s' % self.get_user_by_phid(
@@ -349,15 +350,11 @@ class Phabricator(callbacks.PluginRegexp):
         status = task['fields']['status']['name']
         details.append('status: %s' % self.task_status_theme(status))
 
-        url = full_task['uri']
-        if object_fragment is not None:
-            url = '%s%s' % (url, object_fragment)
-
         return "{id} ({details}): {title} <{url}>".format(
             id=ircutils.bold('T%s' % task['id']),
             title=task['fields']['name'],
             details=', '.join(details),
-            url=url,
+            url=full_task['uri'],
         )
 
     def commit_formatter(self, recipient, commit, skip_details=None):
