@@ -220,7 +220,7 @@ class Phabricator(callbacks.PluginRegexp):
           ^         # start of line
          |(?<![:])\b # word boundary, not preceded by ":"
         )
-        ([A-Z])               # object type
+        ([a-zA-Z])            # object type
         (\d+)                 # object id
         (#\d+[-A-Za-z0-9]*)*  # optional comment link (as fragment)
         (?:
@@ -229,7 +229,7 @@ class Phabricator(callbacks.PluginRegexp):
         )
         """
         for recipient in msg.args[0].split(','):
-            object_type = match.group(1)
+            object_type = match.group(1).upper()
             lookup = {
                 'B': self.conduit(recipient).harbormaster.build.search,
                 'D': self.conduit(recipient).differential.revision.search,
